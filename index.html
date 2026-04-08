@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Sonic Endless Runner</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            touch-action: none; /* Prevent default touch actions like scrolling */
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 100%;
+            max-width: 800px;
+            padding: 10px;
+        }
+
+        #gameCanvas {
+            width: 100%;
+            height: auto;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            display: block;
+            background: #87CEEB; /* Default sky blue - will change dynamically */
+            transition: background 0.5s ease;
+        }
+
+        /* UI Overlay */
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .ui-element {
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 25px;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        #levelDisplay {
+            color: #FFD700;
+        }
+
+        #formDisplay {
+            color: #00FFFF;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Start/Game Over Screen */
+        #menuScreen {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border-radius: 12px;
+            z-index: 20;
+            transition: opacity 0.3s ease;
+        }
+
+        #menuScreen.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        #menuScreen h1 {
+            color: #FFD700;
+            font-size: 48px;
+            margin-bottom: 20px;
+            text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.8);
+            text-align: center;
+        }
+
+        #menuScreen p {
+            color: white;
+            font-size: 18px;
+            margin-bottom: 30px;
+            text-align: center;
+            line-height: 1.6;
+            max-width: 80%;
+        }
+
+        .btn {
+            background: linear-gradient(45deg, #FFD700, #FFA500);
+            border: none;
+            padding: 15px 40px;
+            font-size: 24px;
+            font-weight: bold;
+            color: #1e3c72;
+            border-radius: 50px;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 5px 20px rgba(255, 215, 0, 0.4);
+        }
+
+        .btn:hover {
+            transform: scale(1.05);
+            box-shadow: 0 8px 30px rgba(255, 215, 0, 0.6);
+        }
+
+        .btn:active {
+            transform: scale(0.95);
+        }
+
+        /* Instructions */
+        #instructions {
+            margin-top: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 14px;
+            text-align: center;
+        }
+
+        /* Mobile optimization */
+        @media (max-width: 600px) {
+            #menuScreen h1 {
+                font-size: 32px;
+            }
+            .ui-element {
+                font-size: 14px;
+                padding: 8px 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="800" height="400"></canvas>
+        
+        <!-- UI Overlay -->
+        <div id="ui">
+            <div class="ui-element" id="scoreDisplay">Score: 0</div>
+            <div class="ui-element" id="levelDisplay">Level: 0</div>
+            <div class="ui-element" id="formDisplay">Blue Sonic</div>
+        </div>
+
+        <!-- Menu Screen (Start/Game Over) -->
+        <div id="menuScreen">
+            <h1>🏃 Sonic Runner</h1>
+            <p id="menuText">Jump over obstacles and survive!<br>Press SPACE or TAP to jump</p>
+            <button class="btn" id="startBtn">START GAME</button>
+            <div id="instructions">Desktop: SPACE / UP ARROW | Mobile: TAP</div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * SONIC ENDLESS RUNNER GAME
+         * =========================
+         * A mobile-responsive endless runner with progressive character transformations
+         */
+
+        // Canvas setup
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const menuScreen = document.getElementById('menuScreen');
+        const startBtn = document.getElementById('startBtn');
+        const menuText = document.getElementById('menuText');
+        const scoreDisplay = document.getElementById('scoreDisplay');
+        const levelDisplay = document.getElementById('levelDisplay');
+        const formDisplay = document.getElementById('formDisplay');
+
+        // Game state variables
+        let gameRunning = false;
+        let animationId;
+        let score = 0;
+        let gameSpeed = 3; // Initial slow speed for easy start
+        let frameCount = 0;
+        
+        // Level system: Score translates directly to levels (1 point = 1 level)
+        // This makes the progression system straightforward and visible to players
+        
+        // Physics constants
+        const GRAVITY = 0.6;
+        const JUMP_FORCE = -12;
+        const GROUND_Y = 320; // Ground level Y coordinate
+
+        // Player object
+        const player = {
+            x: 100,
+            y: GROUND_Y,
+            width: 40,
+            height: 40,
+            velocityY: 0,
+            jumping: false,
+            color: '#0066FF', // Default Blue Sonic color
+            // Current form index for tracking transformations
+            currentForm: 0
+        };
+
+        // Obstacles array
+        let obstacles = [];
+        
+        // Particle effects array (for visual polish)
+        let particles = [];
+
+        // Background elements (clouds, etc.)
+        let bgElements = [];
+
+        // ========================================================================
+        // CHARACTER FORM DEFINITIONS
+        // ========================================================================
+        // Each form has specific score thresholds, colors, and visual properties
+        // To replace with images: Add image URL to each form object and modify drawPlayer()
+        
+        const SONIC_FORMS = [
+            {
+                name: 'Blue Sonic',
+                minScore: 0,
+                maxScore: 699,
+                color: '#0066FF',      // Bright blue
+                secondaryColor: '#FFD700', // Gold
+                bgColor: '#87CEEB',    // Sky blue
+                shape: 'circle',       // Geometric shape placeholder
+                glow: false,
+                trail: false
+            },
+            {
+                name: 'Super Sonic',
+                minScore: 700,
+                maxScore: 1199,
+                color: '#FFD700',      // Golden yellow
+                secondaryColor: '#FF6B00', // Orange
+                bgColor: '#FFE4B5',    // Moccasin/sunset
+                shape: 'spiky',
+                glow: true,
+                trail: true
+            },
+            {
+                name: 'Hyper Sonic',
+                minScore: 1200,
+                maxScore: 1599,
+                color: '#00FFFF',      // Cyan
+                secondaryColor: '#FF00FF', // Magenta
+                bgColor: '#E0FFFF',    // Light cyan
+                shape: 'diamond',
+                glow: true,
+                trail: true
+            },
+            {
+                name: 'Dark Sonic',
+                minScore: 1600,
+                maxScore: 2299,
+                color: '#2C2C2C',      // Dark gray/black
+                secondaryColor: '#8B0000', // Dark red
+                bgColor: '#483D8B',    // Dark slate blue
+                shape: 'jagged',
+                glow: true,
+                trail: false
+            },
+            {
+                name: 'Excalibur Sonic',
+                minScore: 2300,
+                maxScore: 2899,
+                color: '#C0C0C0',      // Silver
+                secondaryColor: '#4169E1', // Royal blue
+                bgColor: '#F0F8FF',    // Alice blue
+                shape: 'knight',
+                glow: true,
+                trail: true
+            },
+            {
+                name: 'Classic Sonic',
+                minScore: 2900,
+                maxScore: 3199,
+                color: '#0000FF',      // Classic bright blue
+                secondaryColor: '#FF0000', // Red shoes
+                bgColor: '#98FB98',    // Pale green (Green Hill Zone)
+                shape: 'chubby',
+                glow: false,
+                trail: false
+            },
+            {
+                name: 'Modern Sonic',
+                minScore: 3200,
+                maxScore: 3499,
+                color: '#1E90FF',      // Dodger blue
+                secondaryColor: '#DC143C', // Crimson
+                bgColor: '#B0E0E6',    // Powder blue
+                shape: 'sleek',
+                glow: false,
+                trail: true
+            },
+            {
+                name: 'Movie Sonic',
+                minScore: 3500,
+                maxScore: 3899,
+                color: '#00BFFF',      // Deep sky blue
+                secondaryColor: '#FF4500', // Orange red
+                bgColor: '#191970',    // Midnight blue
+                shape: 'realistic',
+                glow: true,
+                trail: true
+            },
+            {
+                name: 'Sonic Boom',
+                minScore: 3900,
+                maxScore: 4299,
+                color: '#4169E1',      // Royal blue
+                secondaryColor: '#FF6347', // Tomato
+                bgColor: '#F5DEB3',    // Wheat
+                shape: 'tall',
+                glow: false,
+                trail: false
+            },
+            {
+                name: 'Green Sonic',
+                minScore: 4300,
+                maxScore: Infinity,
+                color: '#00FF00',      // Lime green
+                secondaryColor: '#32CD32', // Lime green variant
+                bgColor: '#90EE90',    // Light green
+                shape: 'eco',
+                glow: true,
+                trail: true
+            }
+        ];
+
+        // ========================================================================
+        // DIFFICULTY SCALING SYSTEM
+        // ========================================================================
+        // The game starts very easy and maintains gentle difficulty until level 2500
+        // At level 2500, a significant difficulty spike occurs
+        
+        function updateDifficulty() {
+            // Base speed increases slowly until level 2500
+            if (score < 2500) {
+                // Gentle curve: speed increases by 0.001 per level, capped at 6
+                gameSpeed = Math.min(3 + (score * 0.001), 6);
+            } else {
+                // DIFFICULTY SPIKE at level 2500+
+                // Speed jumps significantly and continues climbing faster
+                // Base speed becomes 7 plus additional scaling
+                const excessScore = score - 2500;
+                gameSpeed = 7 + (excessScore * 0.002);
+                
+                // Cap maximum speed to keep game playable
+                if (gameSpeed > 12) gameSpeed = 12;
+            }
+        }
+
+        // ========================================================================
+        // OBSTACLE GENERATION SYSTEM
+        // ========================================================================
+        // Obstacles spawn based on game speed and difficulty level
+        // At higher difficulties (2500+), spawn patterns become more challenging
+        
+        function spawnObstacle() {
+            const minGap = score < 2500 ? 300 : 180; // Minimum distance between obstacles
+            const maxGap = score < 2500 ? 600 : 350; // Maximum gap
+            
+            // Random gap between obstacles based on current difficulty
+            const gap = minGap + Math.random() * (maxGap - minGap);
+            
+            // Obstacle types: 0 = ground spike, 1 = flying enemy, 2 = tall pillar
+            let type = 0;
+            const rand = Math.random();
+            
+            if (score < 2500) {
+                // Easy mode: mostly ground obstacles
+                type = rand > 0.8 ? 1 : 0;
+            } else {
+                // Hard mode: mix of all types, more flying enemies
+                if (rand > 0.6) type = 1; // Flying
+                else if (rand > 0.85) type = 2; // Tall pillar
+            }
+            
+            const obstacle = {
+                x: canvas.width,
+                y: type === 1 ? GROUND_Y - 60 : GROUND_Y, // Flying enemies are higher
+                width: type === 2 ? 30 : 25,
+                height: type === 1 ? 30 : (type === 2 ? 70 : 40),
+                type: type,
+                passed: false
+            };
+            
+            obstacles.push(obstacle);
+        }
+
+        // ========================================================================
+        // INPUT HANDLING
+        // ========================================================================
+        
+        function jump() {
+            if (!player.jumping && gameRunning) {
+                player.velocityY = JUMP_FORCE;
+                player.jumping = true;
+                createJumpParticles();
+            }
+        }
+
+        // Keyboard controls (Desktop)
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'Space' || e.code === 'ArrowUp') {
+                e.preventDefault();
+                if (!gameRunning && !menuScreen.classList.contains('hidden')) {
+                    startGame();
+                } else {
+                    jump();
+                }
+            }
+        });
+
+        // Touch controls (Mobile)
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+            if (!gameRunning && !menuScreen.classList.contains('hidden')) {
+                startGame();
+            } else {
+                jump();
+            }
+        }, { passive: false });
+
+        // Start button
+        startBtn.addEventListener('click', startGame);
+
+        // ========================================================================
+        // GAME LOOP FUNCTIONS
+        // ========================================================================
+        
+        function startGame() {
+            gameRunning = true;
+            score = 0;
+            gameSpeed = 3;
+            player.y = GROUND_Y;
+            player.velocityY = 0;
+            player.jumping = false;
+            obstacles = [];
+            particles = [];
+            bgElements = [];
+            frameCount = 0;
+            
+            menuScreen.classList.add('hidden');
+            updatePlayerForm();
+            
+            // Start the game loop
+            gameLoop();
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            cancelAnimationFrame(animationId);
+            
+            menuText.innerHTML = `Game Over!<br>Final Score: ${Math.floor(score)}<br>Level: ${Math.floor(score)}`;
+            startBtn.textContent = 'TRY AGAIN';
+            menuScreen.classList.remove('hidden');
+        }
+
+        // ========================================================================
+        // UPDATE LOGIC
+        // ========================================================================
+        
+        function update() {
+            frameCount++;
+            
+            // Update score (1 point per frame = level progression)
+            score += 0.5; // Adjust for desired progression speed
+            scoreDisplay.textContent = `Score: ${Math.floor(score)}`;
+            levelDisplay.textContent = `Level: ${Math.floor(score)}`;
+            
+            // Update difficulty based on current score
+            updateDifficulty();
+            
+            // Check for form transformation
+            updatePlayerForm();
+            
+            // Player physics
+            player.velocityY += GRAVITY;
+            player.y += player.velocityY;
+            
+            // Ground collision
+            if (player.y >= GROUND_Y) {
+                player.y = GROUND_Y;
+                player.velocityY = 0;
+                player.jumping = false;
+            }
+            
+            // Spawn obstacles
+            // Spawn rate depends on game speed and difficulty
+            const spawnRate = score < 2500 ? 120 : 80; // Frames between spawns
+            
+            if (frameCount % Math.floor(spawnRate - gameSpeed * 5) === 0 || 
+                (obstacles.length === 0)) {
+                // Additional check to prevent overlapping
+                const lastObstacle = obstacles[obstacles.length - 1];
+                if (!lastObstacle || (canvas.width - lastObstacle.x > 200)) {
+                    spawnObstacle();
+                }
+            }
+            
+            // Update obstacles
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                obs.x -= gameSpeed;
+                
+                // Collision detection (AABB)
+                if (player.x < obs.x + obs.width &&
+                    player.x + player.width > obs.x &&
+                    player.y < obs.y + obs.height &&
+                    player.y + player.height > obs.y) {
+                    gameOver();
+                    return;
+                }
+                
+                // Remove off-screen obstacles
+                if (obs.x + obs.width < 0) {
+                    obstacles.splice(i, 1);
+                    score += 10; // Bonus for passing obstacle
+                }
+            }
+            
+            // Update particles
+            updateParticles();
+            
+            // Update background elements
+            updateBackground();
+        }
+
+        // ========================================================================
+        // PLAYER FORM MANAGEMENT
+        // ========================================================================
+        // Determines which Sonic form to display based on current score/level
+        
+        function updatePlayerForm() {
+            // Find the appropriate form based on current score
+            const newForm = SONIC_FORMS.find(form => 
+                score >= form.minScore && score <= form.maxScore
+            ) || SONIC_FORMS[SONIC_FORMS.length - 1];
+            
+            // Only update if form changed
+            if (newForm.name !== SONIC_FORMS[player.currentForm]?.name) {
+                player.currentForm = SONIC_FORMS.indexOf(newForm);
+                player.color = newForm.color;
+                formDisplay.textContent = newForm.name;
+                
+                // Update background color with transition
+                canvas.style.background = newForm.bgColor;
+                
+                // Create transformation effect
+                createTransformParticles();
+            }
+        }
+
+        // ========================================================================
+        // RENDERING FUNCTIONS
+        // ========================================================================
+        // All drawing happens here. To use images instead of shapes:
+        // 1. Load images in a preload function
+        // 2. Replace ctx.fill/draw calls with ctx.drawImage()
+        
+        function draw() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background elements
+            drawBackground();
+            
+            // Draw ground
+            drawGround();
+            
+            // Draw obstacles
+            obstacles.forEach(drawObstacle);
+            
+            // Draw player
+            drawPlayer();
+            
+            // Draw particles
+            drawParticles();
+            
+            // Draw watermark
+            drawWatermark();
+        }
+
+        function drawPlayer() {
+            const form = SONIC_FORMS[player.currentForm];
+            
+            ctx.save();
+            ctx.translate(player.x + player.width/2, player.y + player.height/2);
+            
+            // Apply glow effect if applicable
+            if (form.glow) {
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = form.color;
+            }
+            
+            // Rotation effect when jumping
+            if (player.jumping) {
+                ctx.rotate(frameCount * 0.1);
+            }
+            
+            // Draw based on shape type
+            // TO REPLACE WITH IMAGES: Replace this switch statement with:
+            // const img = new Image();
+            // img.src = form.imageUrl; // Add imageUrl to SONIC_FORMS
+            // ctx.drawImage(img, -player.width/2, -player.height/2, player.width, player.height);
+            
+            switch(form.shape) {
+                case 'circle': // Blue Sonic - simple circle with spikes hint
+                    drawCircleSonic(form);
+                    break;
+                case 'spiky': // Super Sonic - star-like shape
+                    drawSpikySonic(form);
+                    break;
+                case 'diamond': // Hyper Sonic - diamond with aura
+                    drawDiamondSonic(form);
+                    break;
+                case 'jagged': // Dark Sonic - aggressive angles
+                    drawJaggedSonic(form);
+                    break;
+                case 'knight': // Excalibur - sword-like silhouette
+                    drawKnightSonic(form);
+                    break;
+                case 'chubby': // Classic - rounder shape
+                    drawChubbySonic(form);
+                    break;
+                case 'sleek': // Modern - streamlined
+                    drawSleekSonic(form);
+                    break;
+                case 'realistic': // Movie - detailed silhouette
+                    drawRealisticSonic(form);
+                    break;
+                case 'tall': // Boom - taller, scarf-like
+                    drawTallSonic(form);
+                    break;
+                case 'eco': // Green - nature-themed
+                    drawEcoSonic(form);
+                    break;
+                default:
+                    drawCircleSonic(form);
+            }
+            
+            ctx.restore();
+            
+            // Draw trail if applicable
+            if (form.trail && gameRunning) {
+                drawTrail(form);
+            }
+        }
+
+        // Individual form drawing functions (geometric placeholders)
+        // Replace these with image drawing code when sprites are available
+        
+        function drawCircleSonic(form) {
+            // Body
+            ctx.fillStyle = form.color;
+            ctx.beginPath();
+            ctx.arc(0, 0, 20, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Spikes hint (triangle on back)
+            ctx.fillStyle = form.secondaryColor;
+            ctx.beginPath();
+            ctx.moveTo(-15, -10);
+            ctx.lineTo(-25, 0);
+            ctx.lineTo(-15, 10);
+            ctx.fill();
+            
+            // Eye
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.ellipse(8, -5, 6, 8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(10, -5, 3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function drawSpikySonic(form) {
+            // Super Sonic - star shape with aura
+            ctx.fillStyle = form.color;
+            drawStar(0, 0, 5, 25, 15);
+            
+            // Inner glow
+            ctx.fillStyle = form.secondaryColor;
+            drawStar(0, 0, 5, 15, 10);
+        }
+
+        function drawDiamondSonic(form) {
+            // Hyper Sonic - rotating diamond effect
+            ctx.fillStyle = form.color;
+            ctx.beginPath();
+            ctx.moveTo(0, -25);
+            ctx.lineTo(20, 0);
+            ctx.lineTo(0, 25);
+            ctx.lineTo(-20, 0);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Inner diamond
+            ctx.fillStyle = form.secondaryColor;
+            ctx.beginPath();
+            ctx.moveTo(0, -15);
+            ctx.lineTo(12, 0);
+            ctx.lineTo(0, 15);
+            ctx.lineTo(-12, 0);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function drawJaggedSonic(form) {
+            // Dark Sonic - aggressive polygon
+            ctx.fillStyle = form.color;
+            ctx.beginPath();
+            ctx.moveTo(20, -20);
+            ctx.lineTo(-10, -25);
+            ctx.lineTo(-20, -10);
+            ctx.lineTo(-15, 10);
+            ctx.lineTo(-20, 25);
+            ctx.lineTo(10, 20);
+            ctx.lineTo(20, 0);
+            ctx.closePath();
+            ctx.fill();
+            
+            // Red eyes
+            ctx.fillStyle = form.secondaryColor;
+            ctx.beginPath();
+            ctx.moveTo(15, -5);
+            ctx.lineTo(5, 0);
+            ctx.lineTo(15, 5);
+            ctx.fill();
+        }
+
+        function drawKnightSonic(form) {
+            // Excalibur Sonic - knight silhouette with sword
+            ctx.fillStyle = form.color;
+            // Body
+            ctx.fillRect(-15, -20, 30, 40);
+            // Helmet crest
+            ctx.beginPath();
+            ctx.moveTo(0, -25);
+            ctx.lineTo(-10, -20);
+            ctx.lineTo(10, -20);
+            ctx.fill();
+            // Sword
+            ctx.fillStyle = '#C0C0C0';
+            ctx.fillRect(15, -30, 5, 40);
+            ctx.fillRect(10, -5, 15, 5);
+        }
+
+        function drawChubbySonic(form) {
+            // Classic Sonic - rounder, shorter
+            ctx.fillStyle = form.color;
+            ctx.beginPath();
+            ctx.arc(0, 5, 22, 0, Math.PI * 2);
+            ctx.fill();
+            // Belly
+            ctx.fillStyle = '#FFE4C4';
+            ctx.beginPath();
+            ctx.arc(0, 10, 12, 0, Math.PI * 2);
+            ctx.fill();
+            // Red shoes
+            ctx.fillStyle = form.secondaryColor;
+            ctx.fillRect(-15, 20, 12, 8);
+            ctx.fillRect(3, 20, 12, 8);
+        }
+
+        function drawSleekSonic(form) {
+            // Modern Sonic - streamlined, longer
+            ctx.fillStyle = form.color;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 25, 18, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Spikes flowing back
+            ctx.beginPath();
+            ctx.moveTo(-15, -10);
+            ctx.lineTo(-30, -5);
+            ctx.lineTo(-15, 0);
+            ctx.lineTo(-30, 5);
+            ctx.lineTo(-15, 10);
+            ctx.fill();
+        }
+
+        function drawRealisticSonic(form) {
+            // Movie Sonic - more detailed fur texture hint
+            ctx.fillStyle = form.color;
+            ctx.beginPath();
+            ctx.arc(0, 0, 20, 0, Math.PI * 2);
+            ctx.fill();
+            // Fur texture lines
+            ctx.strokeStyle = form.secondaryColor;
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 6; i++) {
+                ctx.beginPath();
+                ctx.arc(0, 0, 15 + i * 2, 0, Math.PI * 1.5);
+                ctx.stroke();
+            }
+        }
+
+        function drawTallSonic(form) {
+            // Sonic Boom - taller with scarf
+            ctx.fillStyle = form.color;
+            ctx.fillRect(-12, -25, 24, 50);
+            // Scarf flowing
+            ctx.fillStyle = '#FF6347';
+            ctx.beginPath();
+            ctx.moveTo(-10, -15);
+            ctx.lineTo(-30 - Math.sin(frameCount * 0.1) * 10, -20);
+            ctx.lineTo(-30 - Math.sin(frameCount * 0.1) * 10, -5);
+            ctx.lineTo(-10, -5);
+            ctx.fill();
+        }
+
+        function drawEcoSonic(form) {
+            // Green Sonic - leaf/nature theme
+            ctx.fillStyle = form.color;
+            // Leaf shape body
+            ctx.beginPath();
+            ctx.ellipse(0, 0, 20, 25, 0, 0, Math.PI * 2);
+            ctx.fill();
+            // Leaf details
+            ctx.strokeStyle = '#228B22';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(0, -25);
+            ctx.lineTo(0, 25);
+            ctx.stroke();
+            // Nature particles
+            if (frameCount % 10 === 0) {
+                createEcoParticles();
+            }
+        }
+
+        // Helper function for star shape
+        function drawStar(cx, cy, spikes, outerRadius, innerRadius) {
+            let rot = Math.PI / 2 * 3;
+            let x = cx;
+            let y = cy;
+            let step = Math.PI / spikes;
+
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - outerRadius);
+            for (let i = 0; i < spikes; i++) {
+                x = cx + Math.cos(rot) * outerRadius;
+                y = cy + Math.sin(rot) * outerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+
+                x = cx + Math.cos(rot) * innerRadius;
+                y = cy + Math.sin(rot) * innerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+            }
+            ctx.lineTo(cx, cy - outerRadius);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        function drawTrail(form) {
+            // Draw motion trail behind player
+            ctx.save();
+            ctx.globalAlpha = 0.3;
+            for (let i = 1; i <= 3; i++) {
+                ctx.fillStyle = form.color;
+                ctx.beginPath();
+                ctx.arc(player.x + player.width/2 - i * 15, player.y + player.height/2, 
+                       20 - i * 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.restore();
+        }
+
+        function drawObstacle(obs) {
+            ctx.save();
+            
+            // Different colors for different obstacle types
+            if (obs.type === 0) {
+                // Ground spike - brown/tan
+                ctx.fillStyle = '#8B4513';
+                ctx.beginPath();
+                ctx.moveTo(obs.x, obs.y + obs.height);
+                ctx.lineTo(obs.x + obs.width/2, obs.y);
+                ctx.lineTo(obs.x + obs.width, obs.y + obs.height);
+                ctx.closePath();
+                ctx.fill();
+            } else if (obs.type === 1) {
+                // Flying enemy - red/orange
+                ctx.fillStyle = '#FF4500';
+                ctx.beginPath();
+                ctx.arc(obs.x + obs.width/2, obs.y + obs.height/2, 
+                       obs.width/2, 0, Math.PI * 2);
+                ctx.fill();
+                // Wings
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.ellipse(obs.x - 5, obs.y + 5, 10, 5, 0.5, 0, Math.PI * 2);
+                ctx.fill();
+            } else {
+                // Tall pillar - gray stone
+                ctx.fillStyle = '#696969';
+                ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                // Detail lines
+                ctx.fillStyle = '#A9A9A9';
+                ctx.fillRect(obs.x + 5, obs.y + 10, obs.width - 10, 5);
+                ctx.fillRect(obs.x + 5, obs.y + 30, obs.width - 10, 5);
+            }
+            
+            ctx.restore();
+        }
+
+        function drawGround() {
+            // Ground gradient
+            const gradient = ctx.createLinearGradient(0, GROUND_Y, 0, canvas.height);
+            gradient.addColorStop(0, '#228B22');
+            gradient.addColorStop(1, '#006400');
+            
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, GROUND_Y + player.height, canvas.width, 
+                        canvas.height - GROUND_Y - player.height);
+            
+            // Ground line
+            ctx.strokeStyle = '#1a6b1a';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.moveTo(0, GROUND_Y + player.height);
+            ctx.lineTo(canvas.width, GROUND_Y + player.height);
+            ctx.stroke();
+        }
+
+        function drawBackground() {
+            // Draw moving clouds/background elements
+            ctx.save();
+            ctx.globalAlpha = 0.3;
+            
+            bgElements.forEach(bg => {
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(bg.x, bg.y, bg.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            ctx.restore();
+        }
+
+        function updateBackground() {
+            // Spawn background clouds
+            if (frameCount % 150 === 0) {
+                bgElements.push({
+                    x: canvas.width,
+                    y: 50 + Math.random() * 100,
+                    size: 20 + Math.random() * 30,
+                    speed: gameSpeed * 0.3
+                });
+            }
+            
+            // Update positions
+            for (let i = bgElements.length - 1; i >= 0; i--) {
+                bgElements[i].x -= bgElements[i].speed;
+                if (bgElements[i].x + bgElements[i].size < 0) {
+                    bgElements.splice(i, 1);
+                }
+            }
+        }
+
+        function drawWatermark() {
+            // Permanent semi-transparent watermark
+            ctx.save();
+            ctx.globalAlpha = 0.3;
+            ctx.font = 'bold 48px Arial';
+            ctx.fillStyle = 'white';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // Rotate text slightly for style
+            ctx.translate(canvas.width/2, canvas.height/2);
+            ctx.rotate(-0.1);
+            ctx.fillText('Marcelino', 0, 0);
+            
+            ctx.restore();
+        }
+
+        // ========================================================================
+        // PARTICLE SYSTEM
+        // ========================================================================
+        
+        function createJumpParticles() {
+            for (let i = 0; i < 5; i++) {
+                particles.push({
+                    x: player.x + player.width/2,
+                    y: player.y + player.height,
+                    vx: (Math.random() - 0.5) * 4,
+                    vy: Math.random() * -3,
+                    life: 30,
+                    color: '#FFD700',
+                    size: 5
+                });
+            }
+        }
+
+        function createTransformParticles() {
+            for (let i = 0; i < 20; i++) {
+                particles.push({
+                    x: player.x + player.width/2,
+                    y: player.y + player.height/2,
+                    vx: (Math.random() - 0.5) * 10,
+                    vy: (Math.random() - 0.5) * 10,
+                    life: 60,
+                    color: SONIC_FORMS[player.currentForm].color,
+                    size: 8
+                });
+            }
+        }
+
+        function createEcoParticles() {
+            particles.push({
+                x: player.x + player.width/2 + (Math.random() - 0.5) * 40,
+                y: player.y + player.height/2 + (Math.random() - 0.5) * 40,
+                vx: 0,
+                vy: -1,
+                life: 40,
+                color: '#32CD32',
+                size: 4
+            });
+        }
+
+        function updateParticles() {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life--;
+                p.size *= 0.95;
+                
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+
+        function drawParticles() {
+            particles.forEach(p => {
+                ctx.save();
+                ctx.globalAlpha = p.life / 60;
+                ctx.fillStyle = p.color;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            });
+        }
+
+        // ========================================================================
+        // MAIN GAME LOOP
+        // ========================================================================
+        
+        function gameLoop() {
+            if (!gameRunning) return;
+            
+            update();
+            draw();
+            
+            animationId = requestAnimationFrame(gameLoop);
+        }
+
+        // Initial draw (static screen before start)
+        draw();
+    </script>
+</body>
+</html>
